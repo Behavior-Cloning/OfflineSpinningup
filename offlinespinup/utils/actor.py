@@ -3,6 +3,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions.normal import Normal
+import sys
+import os
+base_dir=os.path.abspath(__file__)
+dir=os.path.abspath(__file__)
+for ii in range(3):
+    dir=os.path.dirname(dir)
+sys.path.append(dir)
+
 from offlinespinup.utils.mlp_infrastructure import build_mlp
 
 LOG_STD_MAX=2
@@ -34,7 +42,10 @@ class SquashedGaussianActor(nn.Module):
         if with_logp_pi:
             logp_pi = dist.log_prob(pi_action).sum(axis=-1)
             logp_pi -= (2*(np.log(2) - pi_action - F.softplus(-2*pi_action))).sum(axis=-1)
-            assert tuple(logp_pi.shape)==(num_samples,B)
+            if deterministic:
+                assert tuple(logp_pi.shape)==(B,)
+            else:
+                assert tuple(logp_pi.shape)==(num_samples,B)
         else:
             logp_pi=None
         
@@ -53,20 +64,45 @@ class SquashedGaussianActor(nn.Module):
             else:
                 return a[0,0].detach().cpu().numpy()
 
+    def atanh(self,x):
+        return 0.5*torch.log((1.0+x)/(1.0-x+1e-6))
+
+    def compute_action_logp(self,obs,act):
+        act=act.clone()
+        if act.dim()==2:
+            act.unsqueeze_(0)
+        act_normal=self.atanh(act)
+        net_out=self.net(obs)
+        mu,log_std=net_out.chunk(2,dim=1)# (B,A) (B,A)
+        log_std=torch.clamp(log_std,LOG_STD_MIN,LOG_STD_MAX)
+        std=torch.exp(log_std)
+
+        dist=Normal(mu,std)
+
+        logp_pi = dist.log_prob(act_normal).sum(axis=-1)
+        logp_pi -= (2*(np.log(2) - act_normal - F.softplus(-2*act_normal))).sum(axis=-1)
+        assert logp_pi.dim()==2
+        return logp_pi
+
+
             
 if __name__=='__main__':
-    O,A,B=5,2,16
+    O,A,B=5,2,8
     actor=SquashedGaussianActor(O,A)
     obs=torch.rand((B,O))
     a,logp_pi=actor(obs,deterministic=True)
-    print(a.shape,logp_pi.shape)
-    print(actor.get_action([1.0]*O))
-    print('\nnot deterministic')
-    for i in range(5):
-        print(actor.get_action([1.0]*O,deterministic=False))
+    # print(a.shape,logp_pi.shape)
+    # print(actor.get_action([1.0]*O))
+    # print('\nnot deterministic')
+    # for i in range(5):
+    #     print(actor.get_action([1.0]*O,deterministic=False))
 
-    a,logp_pi=actor(obs,deterministic=False,num_samples=10)
-    print(a.shape,logp_pi.shape)
-    print(a[:,1,:])
+    # a,logp_pi=actor(obs,deterministic=False,num_samples=10)
+    # print(a.shape,logp_pi.shape)
+    # print(a[:,1,:])
 
-    
+    print(logp_pi)
+    print(a)
+    logp_pi=actor.compute_action_logp(obs,a)
+    print(logp_pi)
+    print(a)
