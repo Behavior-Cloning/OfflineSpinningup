@@ -2,6 +2,14 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+class Swish(nn.Module):
+    def __init__(self):
+        super(Swish, self).__init__()
+
+    def forward(self, x):
+        x = x * torch.sigmoid(x)
+        return x
+
 @torch.no_grad()
 def torch_default_init(m):
     if m.weight.dim()==3:
@@ -66,7 +74,7 @@ class Ensemble_Linear(nn.Module):
         return torch.bmm(x,self.weight)+self.bias
     
     def extra_repr(self) -> str:
-        return f'in_features={self.in_features}, out_features={self.out_features}'
+        return f'in_features={self.in_features}, out_features={self.out_features}, ensemble_size={self.ensemble_size}'
     
 
 
