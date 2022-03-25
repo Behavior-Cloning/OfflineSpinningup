@@ -118,8 +118,8 @@ class Ensemble_Dynamic_Model(nn.Module):
         permutation = np.random.permutation(inputs.shape[0])
         train_inputs, holdout_inputs = inputs[permutation[num_holdout:]], inputs[permutation[:num_holdout]]
         train_targets, holdout_targets = targets[permutation[num_holdout:]], targets[permutation[:num_holdout]]
-        holdout_inputs = np.tile(holdout_inputs[None], [E, 1, 1])
-        holdout_targets = np.tile(holdout_targets[None], [E, 1, 1])
+        # holdout_inputs = np.tile(holdout_inputs[None], [E, 1, 1])
+        # holdout_targets = np.tile(holdout_targets[None], [E, 1, 1])
 
         idxs=np.argsort(np.random.rand(E,num_train),axis=-1)
         grad_update=0
@@ -145,35 +145,65 @@ class Ensemble_Dynamic_Model(nn.Module):
                 # if (batch_id+1)%100==0:
                 #     print(f'{epoch+1} Epoch {loss.item():.5f}')
 
+
             idxs=np.argsort(np.random.rand(E,num_train),axis=-1)
 
-            holdout_mse_loss=self.measure_holdout_loss(holdout_inputs,holdout_targets)
+            train_mse_loss=self.measure_mse_loss(train_inputs,train_targets)
 
             msg=''
             for i in range(E):
-                msg+=f'Model {i}: {holdout_mse_loss[i].item():.6f}  '
+                msg+=f'T{i}: {train_mse_loss[i].item():.6f}  '
+            print(msg)
+
+            holdout_mse_loss=self.measure_mse_loss(holdout_inputs,holdout_targets)
+
+            msg=''
+            for i in range(E):
+                msg+=f'V{i}: {holdout_mse_loss[i].item():.6f}  '
             print(msg,'\n')
 
+    @torch.no_grad()
+    def measure_mse_loss(self,input,target):
+        assert input.ndim==2 and target.ndim==2
+        batch_size=1024
+        data_num=input.shape[0]
+        E=self.nets.ensemble_size
 
-    @torch.no_grad()        
-    def measure_holdout_loss(self,holdout_input,holdout_target):
-        assert holdout_input.ndim==3 and holdout_target.ndim==3
-        batch_size=512
-        holdout_num=holdout_input.shape[1]
-
-        batch_num=int(np.ceil(holdout_num/batch_size))
+        batch_num=int(np.ceil(data_num/batch_size))
         total_mse_loss=0.0
         for i in range(batch_num):
-            input_tensor=torch.tensor(holdout_input[:,i*batch_size:(i+1)*batch_size],dtype=torch.float32,device=self.device)
+            batch_data=np.tile(input[i*batch_size:(i+1)*batch_size][None],[E,1,1])
+            target_data=np.tile(target[i*batch_size:(i+1)*batch_size][None],[E,1,1])
+            input_tensor=torch.tensor(batch_data,dtype=torch.float32,device=self.device)
             input_tensor=self.scaler.transform(input_tensor)
-            target_tensor=torch.tensor(holdout_target[:,i*batch_size:(i+1)*batch_size],dtype=torch.float32,device=self.device)
-            
+            target_tensor=torch.tensor(target_data,dtype=torch.float32,device=self.device)
+
             B=input_tensor.shape[1]
-            
+
             mean,logvar=self.nets(input_tensor,ret_log_var=True)
             _,mse_loss=self.nets.compute_loss(mean,logvar,target_tensor)
             total_mse_loss+=B*mse_loss
-        return total_mse_loss/holdout_num
+        return total_mse_loss/data_num
+
+    # @torch.no_grad()        
+    # def measure_holdout_loss(self,holdout_input,holdout_target):
+    #     assert holdout_input.ndim==3 and holdout_target.ndim==3
+    #     batch_size=512
+    #     holdout_num=holdout_input.shape[1]
+
+    #     batch_num=int(np.ceil(holdout_num/batch_size))
+    #     total_mse_loss=0.0
+    #     for i in range(batch_num):
+    #         input_tensor=torch.tensor(holdout_input[:,i*batch_size:(i+1)*batch_size],dtype=torch.float32,device=self.device)
+    #         input_tensor=self.scaler.transform(input_tensor)
+    #         target_tensor=torch.tensor(holdout_target[:,i*batch_size:(i+1)*batch_size],dtype=torch.float32,device=self.device)
+            
+    #         B=input_tensor.shape[1]
+            
+    #         mean,logvar=self.nets(input_tensor,ret_log_var=True)
+    #         _,mse_loss=self.nets.compute_loss(mean,logvar,target_tensor)
+    #         total_mse_loss+=B*mse_loss
+    #     return total_mse_loss/holdout_num
 
         
 
