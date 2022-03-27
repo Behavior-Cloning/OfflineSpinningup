@@ -1,9 +1,11 @@
+import bs4
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
 from torch.optim import Adam
+from torch.optim.lr_scheduler import MultiStepLR
 import sys
 import os
 base_dir=os.path.abspath(__file__)
@@ -29,7 +31,10 @@ class StandardScaler(nn.Module):
         self.mu.data.mul_(0.0).add_(mu)
 
     def transform(self, data):
-        return (data - self.mu) / self.std
+        if data.ndim==2:
+            return (data - self.mu) / self.std
+        else:
+            return (data-self.mu.unsqueeze(0))/self.std.unsqueeze(0)
 
     def inverse_transform(self, data):
         return self.std * data + self.mu
@@ -99,11 +104,14 @@ class Ensemble_Dynamic_Model(nn.Module):
         self.nets=Ensemble_Model(obs_dim,act_dim,reward_dim,network_size,hidden_dim,lr,deterministic)
         self.scaler=StandardScaler(obs_dim+act_dim)
         self.device=device
-
+        self.obs_dim=obs_dim
+        self.act_dim=act_dim
+        self.network_size=network_size
         self.elite_size=elite_size
+        self.deterministic=deterministic
         self.to(device)
 
-    def train(self,obs,act,obs2,rew,batch_size=32,holdout_ratio=0.1,max_holdout_num=10000,max_epoch=10):
+    def train(self,obs,act,obs2,rew,batch_size=32,holdout_ratio=0.1,max_holdout_num=20000,max_epoch=100):
         inputs=np.concatenate((obs,act),axis=-1)
         targets=np.concatenate((obs2-obs,rew[:,None] if rew.ndim==1 else rew),axis=-1)
         self.scaler.fit(torch.tensor(inputs,dtype=torch.float32,device=self.device))
@@ -118,15 +126,30 @@ class Ensemble_Dynamic_Model(nn.Module):
         permutation = np.random.permutation(inputs.shape[0])
         train_inputs, holdout_inputs = inputs[permutation[num_holdout:]], inputs[permutation[:num_holdout]]
         train_targets, holdout_targets = targets[permutation[num_holdout:]], targets[permutation[:num_holdout]]
-        # holdout_inputs = np.tile(holdout_inputs[None], [E, 1, 1])
-        # holdout_targets = np.tile(holdout_targets[None], [E, 1, 1])
 
         idxs=np.argsort(np.random.rand(E,num_train),axis=-1)
         grad_update=0
+        scheduler=MultiStepLR(self.nets.optimizer,[50,100,200],0.3)
         for epoch in range(max_epoch):
+            if epoch==0:
+                print('BEFORE TRAINING:')
+                train_mse_loss=self.measure_mse_loss(train_inputs,train_targets)
+                msg=''
+                for i in range(E):
+                    msg+=f'T{i}: {train_mse_loss[i].item():.6f}  '
+                print(msg)
+                
+                holdout_mse_loss=self.measure_mse_loss(holdout_inputs,holdout_targets)
+                msg=''
+                for i in range(E):
+                    msg+=f'V{i}: {holdout_mse_loss[i].item():.6f}  '
+                print(msg,'\n')
+            # print(train_inputs[0:5])
+            # print(train_targets[0:5])
             print(f'Epoch {epoch+1}:')
             total_batch_num=int(np.ceil(num_train/batch_size))
-            for batch_id in tqdm(range(total_batch_num)):
+            # for batch_id in tqdm(range(total_batch_num)):
+            for batch_id in range(total_batch_num):
                 batch_idxs=idxs[:,batch_id*batch_size:(batch_id+1)*batch_size]
                 batch_input=train_inputs[batch_idxs]
                 batch_target=train_targets[batch_idxs]
@@ -142,8 +165,6 @@ class Ensemble_Dynamic_Model(nn.Module):
                 loss.backward()
                 self.nets.optimizer.step()
                 grad_update+=1
-                # if (batch_id+1)%100==0:
-                #     print(f'{epoch+1} Epoch {loss.item():.5f}')
 
 
             idxs=np.argsort(np.random.rand(E,num_train),axis=-1)
@@ -161,6 +182,8 @@ class Ensemble_Dynamic_Model(nn.Module):
             for i in range(E):
                 msg+=f'V{i}: {holdout_mse_loss[i].item():.6f}  '
             print(msg,'\n')
+
+            scheduler.step()
 
     @torch.no_grad()
     def measure_mse_loss(self,input,target):
@@ -185,42 +208,85 @@ class Ensemble_Dynamic_Model(nn.Module):
             total_mse_loss+=B*mse_loss
         return total_mse_loss/data_num
 
-    # @torch.no_grad()        
-    # def measure_holdout_loss(self,holdout_input,holdout_target):
-    #     assert holdout_input.ndim==3 and holdout_target.ndim==3
-    #     batch_size=512
-    #     holdout_num=holdout_input.shape[1]
+    @torch.no_grad()
+    def batch_predict(self,obs,action):
+        obs_tensor=torch.clone(obs)
+        action_tensor=torch.clone(action)
+        assert obs_tensor.dim()==3 and action_tensor.dim()==3 and obs_tensor.shape[0]==action_tensor.shape[0]
+        input_tensor=torch.cat([obs_tensor,action_tensor],dim=-1)
+        input_tensor=self.scaler.transform(input_tensor)
+        outputs, _ = self.nets(input_tensor, ret_log_var=False)
+        # outputs = outputs.mean(0)
+        #reward obs (E,B,) (E,B,O)
+        return outputs[..., -1], outputs[..., :-1] + obs_tensor.unsqueeze(0)
 
-    #     batch_num=int(np.ceil(holdout_num/batch_size))
-    #     total_mse_loss=0.0
-    #     for i in range(batch_num):
-    #         input_tensor=torch.tensor(holdout_input[:,i*batch_size:(i+1)*batch_size],dtype=torch.float32,device=self.device)
-    #         input_tensor=self.scaler.transform(input_tensor)
-    #         target_tensor=torch.tensor(holdout_target[:,i*batch_size:(i+1)*batch_size],dtype=torch.float32,device=self.device)
-            
-    #         B=input_tensor.shape[1]
-            
-    #         mean,logvar=self.nets(input_tensor,ret_log_var=True)
-    #         _,mse_loss=self.nets.compute_loss(mean,logvar,target_tensor)
-    #         total_mse_loss+=B*mse_loss
-    #     return total_mse_loss/holdout_num
+    def predict(self,obs,action):
+        if not isinstance(obs,torch.Tensor):
+            obs_tensor=torch.tensor(obs,dtype=torch.float32,device=self.device)
+        else:
+            obs_tensor=torch.clone(obs).device(self.device)
 
+        if not isinstance(action,torch.Tensor):
+            action_tensor=torch.tensor(action,dtype=torch.float32,device=self.device)
+        else:
+            action_tensor=torch.clone(action).device(self.device)
         
+        if obs_tensor.ndim==2:
+            obs_tensor=obs_tensor.unsqueeze_(0).repeat(self.network_size,1,1)
+        if action_tensor.ndim==2:
+            action_tensor=action_tensor.unsqueeze_(0).repeat(self.network_size,1,1)
+        
+        assert action_tensor.shape[0]==self.network_size and obs_tensor.shape[0]==self.network_size
+
+        input_tensor=torch.cat([obs_tensor,action_tensor],dim=-1)
+        input_tensor=self.scaler.transform(input_tensor)
+
+        mean_tensor,var_tensor=self.nets(input_tensor,ret_log_var=False)
+        #(E,B,O+1) (E,B,O+1)   deterministic: (E,B,O+1), None
+
+        if self.deterministic:
+            delta_tensor=mean_tensor[...,:-1]
+            reward_tensor=mean_tensor[...,-1]
+        else:
+            std_tensor=torch.sqrt(var_tensor)
+            sample_tensor=mean_tensor+torch.randn(tuple(mean_tensor.shape)).to(mean_tensor)*std_tensor
+            delta_tensor=sample_tensor[...,:-1]
+            reward_tensor=sample_tensor[...,-1]
+        # obs(E,B,O) reward(E,B) torch cuda tensor
+        return delta_tensor+obs_tensor,reward_tensor
+
+
 
 if __name__=='__main__':
     # B,O,A=20000,4,2
     # obs=np.random.randn(B,O)
-    # obs2=np.random.randn(B,O)
+    # obs2=obs+1.0
     # act=np.random.randn(B,A)
-    # rew=np.random.randn(B)
+    # rew=np.ones(B)*0.2
     # dynamic_model=Ensemble_Dynamic_Model(O,A)
-    # dynamic_model.train(obs,act,obs2,rew)
-    
+    # dynamic_model.train(obs,act,obs2,rew,batch_size=512,max_epoch=20)
+    # print(obs[:5])
+    # pred_obs2,reward2=dynamic_model.predict(obs,act)
+    # print(pred_obs2[:5])
+    # print(reward2[:5])
+
+
+
+    import argparse
     import d4rl
     import gym
     from offlinespinup.utils.replay_buffer import ReplayBuffer
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--seed",type=int,default=0)
+    parser.add_argument("--batch_size",type=int,default=256)
+    args=parser.parse_args()
+    seed=args.seed
+    bs=args.batch_size
 
-    env=gym.make("hopper-medium-replay-v0")
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    env=gym.make("hopper-medium-v0")
+    env.seed(seed)
     dataset=d4rl.qlearning_dataset(env)
     act_dim=env.action_space.shape[0]
     obs_dim=env.observation_space.shape[0]
@@ -228,9 +294,10 @@ if __name__=='__main__':
     replay_buffer=ReplayBuffer(obs_dim,act_dim,int(1e6))
     replay_buffer.load_dataset(dataset)
 
-    dynamic_model=Ensemble_Dynamic_Model(obs_dim,act_dim)
+    dynamic_model=Ensemble_Dynamic_Model(obs_dim,act_dim,lr=1e-3)
 
-    dynamic_model.train(replay_buffer.obs_buf,replay_buffer.act_buf,replay_buffer.obs2_buf,replay_buffer.rew_buf,max_epoch=100)
+    dynamic_model.train(replay_buffer.obs_buf,replay_buffer.act_buf,replay_buffer.obs2_buf,replay_buffer.rew_buf,
+        max_epoch=300,batch_size=bs)
 
         
 
