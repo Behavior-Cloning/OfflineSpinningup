@@ -38,8 +38,8 @@ def sac(env,test_env,critic_ensemble_size=2,seed=0,epochs=200,steps_per_epoch=50
     c_kwargs=dict(ensemble_size=critic_ensemble_size,hidden_sizes=[256,256])
     sac_agent=SACpolicy(obs_dim,act_dim,c_kwargs=c_kwargs,num_samples=N)
     sac_agent.to_device(device)
-    a_optimizer=Adam(sac_agent.actor.parameters(),lr=1e-3)
-    c_optimizer=Adam(sac_agent.critic.parameters(),lr=1e-3)
+    a_optimizer=Adam(sac_agent.actor.parameters(),lr=3e-4)
+    c_optimizer=Adam(sac_agent.critic.parameters(),lr=3e-4)
 
     logger=EasyLogger()
     var_counts = tuple(count_vars(module) for module in [sac_agent.actor, sac_agent.critic])
@@ -92,7 +92,6 @@ def sac(env,test_env,critic_ensemble_size=2,seed=0,epochs=200,steps_per_epoch=50
             logger.dump_records()
 
 if __name__=="__main__":
-<<<<<<< HEAD
     import argparse
     parser=argparse.ArgumentParser()
     parser.add_argument('--task',type=str,default="hopper-medium-replay-v0")
@@ -103,8 +102,3 @@ if __name__=="__main__":
     test_env=gym.make(args.task)
 
     sac(env,test_env,critic_ensemble_size=args.critic_ensemble_size)
-=======
-    env=gym.make("hopper-medium-replay-v0")
-    test_env=gym.make("hopper-medium-replay-v0")
-    sac(env,test_env)
->>>>>>> 1f3f5cbac68b8c832ce986b77c13d1dc94e5e412

@@ -1,3 +1,4 @@
+from matplotlib.pyplot import isinteractive
 import numpy as np
 import torch
 

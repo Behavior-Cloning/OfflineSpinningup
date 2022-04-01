@@ -45,7 +45,6 @@ real_ratio=0.05,penalty_coef=1.0,max_ep_len=1000,batch_size=256,num_test_episode
     sac_agent=SACpolicy(obs_dim,act_dim,c_kwargs=c_kwargs,num_samples=N)
     sac_agent.to_device(device)
 
-    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!mod lr
     a_optimizer=Adam(sac_agent.actor.parameters(),lr=3e-4)
     c_optimizer=Adam(sac_agent.critic.parameters(),lr=3e-4)
 
