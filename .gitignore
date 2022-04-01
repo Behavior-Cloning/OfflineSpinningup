@@ -2,7 +2,9 @@
 *.stl
 *.png
 *.json
+
 *.log
+
 
 d4rl/
 mjrl/
@@ -16,8 +18,10 @@ __pycache__/
 # C extensions
 *.so
 
+
 *.log
 *.pkl
+
 
 # Distribution / packaging
 .Python
