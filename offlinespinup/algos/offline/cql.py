@@ -110,13 +110,13 @@ def cql(env,test_env,seed=0,epochs=200,steps_per_epoch=5000,start_steps=10000,de
         sac_agent.syn_weight()
 
     def test_agent():
-            for i in range(num_test_episodes):
-                ep_ret,o,ep_len,d=0.0,test_env.reset(),0,False
-                while not(d or ep_len>=max_ep_len):
-                    o,r,d,_=test_env.step(sac_agent.get_action(o,deterministic=True))
-                    ep_ret+=r
-                    ep_len+=1
-                logger.store(Performance=ep_ret,NormalizedScore=env.get_normalized_score(ep_ret))
+        for i in range(num_test_episodes):
+            ep_ret,o,ep_len,d=0.0,test_env.reset(),0,False
+            while not(d or ep_len>=max_ep_len):
+                o,r,d,_=test_env.step(sac_agent.get_action(o,deterministic=True))
+                ep_ret+=r
+                ep_len+=1
+            logger.store(Performance=ep_ret,NormalizedScore=env.get_normalized_score(ep_ret))
 
     total_steps=int(epochs*steps_per_epoch)
 
@@ -134,9 +134,9 @@ def cql(env,test_env,seed=0,epochs=200,steps_per_epoch=5000,start_steps=10000,de
 if __name__=="__main__":
     import argparse
     parser=argparse.ArgumentParser()
-    parser.add_argument("--env_id",'-e',type=str,default='hopper-medium-replay-v0')
+    parser.add_argument("--task",type=str,default='hopper-medium-replay-v0')
     args=parser.parse_args()
 
-    env=gym.make(args.env_id)
-    test_env=gym.make(args.env_id)
+    env=gym.make(args.task)
+    test_env=gym.make(args.task)
     cql(env,test_env)

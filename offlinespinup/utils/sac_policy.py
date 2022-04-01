@@ -103,6 +103,8 @@ class SACpolicy:
     def get_action(self,obs,deterministic):
         return self.actor.get_action(obs,deterministic)
 
+
+
 if __name__=='__main__':
     O,A,B=20,6,256
 

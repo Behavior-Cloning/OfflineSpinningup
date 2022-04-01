@@ -92,6 +92,13 @@ def sac(env,test_env,critic_ensemble_size=2,seed=0,epochs=200,steps_per_epoch=50
             logger.dump_records()
 
 if __name__=="__main__":
-    env=gym.make("hopper-medium-replay-v0")
-    test_env=gym.make("hopper-medium-replay-v0")
-    sac(env,test_env)
+    import argparse
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--task',type=str,default="hopper-medium-replay-v0")
+    parser.add_argument('--critic_ensemble_size',type=int,default=2)
+    args=parser.parse_args()
+
+    env=gym.make(args.task)
+    test_env=gym.make(args.task)
+
+    sac(env,test_env,critic_ensemble_size=args.critic_ensemble_size)

@@ -1,3 +1,4 @@
+from matplotlib.pyplot import isinteractive
 import numpy as np
 import torch
 
@@ -46,4 +47,51 @@ class ReplayBuffer:
 
         self.ptr, self.size, self.max_size = len(self.obs_buf), len(self.obs_buf), len(self.obs_buf)
         print(f"\nSuccessfully load the static offine dataset(containing {self.size} transitions)!\n")
+
+    def store_batch(self,obs_b,act_b,rew_b,obs2_b,done_b):
+        assert isinstance(obs_b,np.ndarray) and isinstance(obs2_b,np.ndarray)\
+            and isinstance(act_b,np.ndarray) and isinstance(rew_b,np.ndarray)\
+                and isinstance(done_b,np.ndarray)
+        assert obs_b.shape[0]==obs2_b.shape[0]==done_b.shape[0]==rew_b.shape[0]==done_b.shape[0]
+
+        if rew_b.ndim==2:
+            rew_b=rew_b.copy().reshape(-1)
+        if done_b.ndim==2:
+            done_b=done_b.copy().reshape(-1)
+        
+        B=obs_b.shape[0]
+        batch_size = len(obs_b)
+        if self.ptr + batch_size > self.max_size:
+            begin = self.ptr
+            end = self.max_size
+            first_add_size = end - begin
+            self.obs_buf[begin:end] = np.array(obs_b[:first_add_size])
+            self.obs2_buf[begin:end] = np.array(obs2_b[:first_add_size])
+            self.act_buf[begin:end] = np.array(act_b[:first_add_size])
+            self.rew_buf[begin:end] = np.array(rew_b[:first_add_size])
+            self.done_buf[begin:end] = np.array(done_b[:first_add_size])
+
+            begin = 0
+            end = batch_size - first_add_size
+            self.obs_buf[begin:end] = np.array(obs_b[first_add_size:]).copy()
+            self.obs2_buf[begin:end] = np.array(obs2_b[first_add_size:]).copy()
+            self.act_buf[begin:end] = np.array(act_b[first_add_size:]).copy()
+            self.rew_buf[begin:end] = np.array(rew_b[first_add_size:]).copy()
+            self.done_buf[begin:end] = np.array(done_b[first_add_size:]).copy()
+
+            self.ptr = end
+            self.size = min(self.size + batch_size, self.max_size)
+
+        else:
+            begin = self.ptr
+            end = self.ptr + batch_size
+            self.obs_buf[begin:end] = np.array(obs_b).copy()
+            self.obs2_buf[begin:end] = np.array(obs2_b).copy()
+            self.act_buf[begin:end] = np.array(act_b).copy()
+            self.rew_buf[begin:end] = np.array(rew_b).copy()
+            self.done_buf[begin:end] = np.array(done_b).copy()
+
+            self.ptr = end
+            self.size = min(self.size + batch_size, self.max_size)
+        
         
